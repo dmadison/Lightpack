@@ -56,6 +56,7 @@ private:
 	bool writeBuffer(const QByteArray & buff);
 	void resizeColorsBuffer(int buffSize);
 	void reinitBufferHeader(int ledsCount);
+	bool readyToWrite();
 
 private:
 	QSerialPort *m_AdalightDevice;
@@ -64,4 +65,5 @@ private:
 	QByteArray m_writeBuffer;
 	QString m_portName;
 	int m_baudRate;
+	bool m_flowReady;
 };

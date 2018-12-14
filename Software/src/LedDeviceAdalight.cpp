@@ -39,6 +39,7 @@ LedDeviceAdalight::LedDeviceAdalight(const QString &portName, const int baudRate
 
 	m_portName = portName;
 	m_baudRate = baudRate;
+	m_flowReady = true;
 
 //	m_gamma = Settings::getDeviceGamma();
 //	m_brightness = Settings::getDeviceBrightness();
@@ -200,15 +201,16 @@ void LedDeviceAdalight::open()
 		m_AdalightDevice = new QSerialPort();
 
 	m_AdalightDevice->setPortName(m_portName);// Settings::getAdalightSerialPortName());
+	//m_AdalightDevice->setFlowControl(QSerialPort::SoftwareControl);  // Requires a supported driver
 
-	m_AdalightDevice->open(QIODevice::WriteOnly | QIODevice::Unbuffered);
+	m_AdalightDevice->open(QIODevice::ReadWrite | QIODevice::Unbuffered);
 	bool ok = m_AdalightDevice->isOpen();
 
 	// Ubuntu 10.04: on every second attempt to open the device leads to failure
 	if (ok == false)
 	{
 		// Try one more time
-		m_AdalightDevice->open(QIODevice::WriteOnly);
+		m_AdalightDevice->open(QIODevice::ReadWrite);
 		ok = m_AdalightDevice->isOpen();
 	}
 
@@ -246,6 +248,22 @@ void LedDeviceAdalight::open()
 	emit openDeviceSuccess(ok);
 }
 
+bool LedDeviceAdalight::readyToWrite() {
+	static const uint8_t XOFF = 0x13;  // Software flow control "stop" byte
+	static const uint8_t XON = 0x11;  // Software flow control "start" byte
+	
+	QByteArray dataIn = m_AdalightDevice->readAll();
+	int offPos = dataIn.lastIndexOf(XOFF);
+	int onPos = dataIn.lastIndexOf(XON);
+
+	if (offPos != -1 || onPos != -1) {
+		m_flowReady = onPos >= offPos;
+		DEBUG_MID_LEVEL << Q_FUNC_INFO << "Software flow control set to" << m_flowReady;
+	}
+
+	return m_flowReady;
+}
+
 bool LedDeviceAdalight::writeBuffer(const QByteArray & buff)
 {
 	DEBUG_MID_LEVEL << Q_FUNC_INFO << "Hex:" << buff.toHex();
@@ -253,7 +271,22 @@ bool LedDeviceAdalight::writeBuffer(const QByteArray & buff)
 	if (m_AdalightDevice == NULL || m_AdalightDevice->isOpen() == false)
 		return false;
 
-	int bytesWritten = m_AdalightDevice->write(buff);
+	int bytesWritten = 0;
+
+	for (size_t i = 0; i < buff.size(); i++) {
+		if (!readyToWrite()) {
+			DEBUG_MID_LEVEL << Q_FUNC_INFO << "Wrote" << bytesWritten << "bytes and quit";
+			return true; // Screw it, we're out
+		}
+		const char single_byte = buff[(uint)i];
+		m_AdalightDevice->write(&single_byte, 1);
+		if (m_AdalightDevice->bytesToWrite() >= 1) {
+			m_AdalightDevice->waitForBytesWritten();
+		}
+		bytesWritten++;
+	}
+
+	DEBUG_MID_LEVEL << Q_FUNC_INFO << "Wrote" << bytesWritten << "bytes";
 
 	if (bytesWritten != buff.count())
 	{
