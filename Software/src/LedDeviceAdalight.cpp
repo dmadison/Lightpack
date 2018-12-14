@@ -201,14 +201,14 @@ void LedDeviceAdalight::open()
 
 	m_AdalightDevice->setPortName(m_portName);// Settings::getAdalightSerialPortName());
 
-	m_AdalightDevice->open(QIODevice::WriteOnly | QIODevice::Unbuffered);
+	m_AdalightDevice->open(QIODevice::ReadWrite | QIODevice::Unbuffered);
 	bool ok = m_AdalightDevice->isOpen();
 
 	// Ubuntu 10.04: on every second attempt to open the device leads to failure
 	if (ok == false)
 	{
 		// Try one more time
-		m_AdalightDevice->open(QIODevice::WriteOnly);
+		m_AdalightDevice->open(QIODevice::ReadWrite);
 		ok = m_AdalightDevice->isOpen();
 	}
 
@@ -246,12 +246,22 @@ void LedDeviceAdalight::open()
 	emit openDeviceSuccess(ok);
 }
 
+bool LedDeviceAdalight::ackByteReceived() {	
+	QByteArray dataIn = m_AdalightDevice->readAll();
+	return dataIn.size() > 0;  // At least one byte received
+}
+
 bool LedDeviceAdalight::writeBuffer(const QByteArray & buff)
 {
 	DEBUG_MID_LEVEL << Q_FUNC_INFO << "Hex:" << buff.toHex();
 
 	if (m_AdalightDevice == NULL || m_AdalightDevice->isOpen() == false)
 		return false;
+
+	if (!ackByteReceived()) {
+		DEBUG_MID_LEVEL << Q_FUNC_INFO << "No ack byte received";
+		return true;  // Silently drop
+	}
 
 	int bytesWritten = m_AdalightDevice->write(buff);
 
@@ -261,6 +271,7 @@ bool LedDeviceAdalight::writeBuffer(const QByteArray & buff)
 		return false;
 	}
 
+	DEBUG_MID_LEVEL << Q_FUNC_INFO << "Frame successfully sent";
 	return true;
 }
 
